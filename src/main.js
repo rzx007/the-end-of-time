@@ -157,13 +157,30 @@ for(let i=0;i<4;i++){
 }
 singularity.add(orbitLines);
 
-// Wide, quiet clouds bring depth without using image assets.
-const nebula = new THREE.Mesh(new THREE.PlaneGeometry(160,85),new THREE.ShaderMaterial({
-  uniforms:{uTime:uniforms.uTime},transparent:true,depthWrite:false,blending:THREE.AdditiveBlending,
-  vertexShader:`varying vec2 vUv;void main(){vUv=uv;gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.);}`,
-  fragmentShader:`${vertexNoise} varying vec2 vUv;uniform float uTime;void main(){vec2 p=vUv;float n=fbm(vec3(p*6.,.3));float m=fbm(vec3(p*12.+n*3.,2.));float band=exp(-pow((p.y-.46+sin(p.x*5.)*.09)/.16,2.));float a=pow(n*m,1.8)*band;vec3 c=mix(vec3(.10,.18,.25),vec3(.30,.23,.14),smoothstep(.3,.8,p.x));gl_FragColor=vec4(c,a*.8);}`
+// Direction-space clouds on a surrounding sky sphere: no rectangular edges or UV seam.
+const nebula = new THREE.Mesh(new THREE.SphereGeometry(145,64,40),new THREE.ShaderMaterial({
+  transparent:true,side:THREE.BackSide,depthWrite:false,blending:THREE.AdditiveBlending,
+  vertexShader:`varying vec3 vDirection;void main(){vDirection=position;gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.);}`,
+  fragmentShader:`${vertexNoise}
+  varying vec3 vDirection;
+  float smoother(float x){x=clamp(x,0.,1.);return x*x*x*(x*(x*6.-15.)+10.);}
+  void main(){
+    vec3 d=normalize(vDirection);
+    // Continuous 3D domain warping, rather than a texture with a visible frame.
+    float warp=fbm(d*3.2+vec3(4.1,1.7,8.3));
+    float n=fbm(d*5.5+warp*1.8+vec3(1.2,3.4,2.1));
+    float detail=fbm(d*13.+n*2.5+vec3(6.2,2.7,4.3));
+    float latitude=dot(d,normalize(vec3(-.17,1.,.12)))+(warp-.5)*.25;
+    float envelope=exp(-pow(latitude/.30,2.));
+    float wisps=smoother((n*detail-.045)/.43);
+    // Both density and its slope vanish at the cloud boundary.
+    float extinction=smoother((envelope-.008)/.84);
+    float density=wisps*extinction;
+    vec3 c=mix(vec3(.10,.18,.25),vec3(.30,.23,.14),smoothstep(-.45,.65,d.x));
+    gl_FragColor=vec4(c,density*.24);
+  }`
 }));
-nebula.position.set(0,3,-55);scene.add(nebula);
+scene.add(nebula);
 
 let paused = reducedMotion, elapsed=0, mode=0, journey=false, journeyStart=0, journeyFrom=new THREE.Vector3();
 const mouse=new THREE.Vector2();
